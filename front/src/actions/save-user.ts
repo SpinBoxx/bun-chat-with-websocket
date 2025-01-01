@@ -14,9 +14,17 @@ export const saveUserAction = async ({ username }: Params) => {
 		method: "POST",
 	});
 	if (!response.ok) {
-		return null;
+		const error = await response.json();
+
+		return {
+			ok: false,
+			errorMessage: error.errorMessage as string,
+		};
 	}
 	const data: User = await response.json();
 
-	return data;
+	return {
+		ok: true,
+		data,
+	};
 };

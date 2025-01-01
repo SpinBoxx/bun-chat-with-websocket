@@ -17,7 +17,7 @@ export function UserPseudoCard() {
 	const [isModalOpen, setIsModalOpen] = useState(false);
 	const socket = new WebSocket("ws://localhost:3000/users");
 	const { user, setUser } = useUserStore();
-	const toggleModalOpen = async () => {
+	const toggleModalOpen = () => {
 		if (user) {
 			setIsModalOpen(!isModalOpen);
 		}
@@ -35,11 +35,14 @@ export function UserPseudoCard() {
 		if (username) {
 			const saveUserResponse = await saveUserAction({
 				username,
-			}).then((user) => {
-				if (user) {
-					setUser(user);
-					toast.success(user.name);
+			}).then((response) => {
+				if (response.ok && response.data) {
+					setUser(response.data);
+					toast.success(response.data.name);
 					socket.send(JSON.stringify("User created !"));
+					setIsModalOpen(false);
+				} else {
+					toast.error(response.errorMessage);
 				}
 			});
 		}

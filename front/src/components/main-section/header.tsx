@@ -25,7 +25,9 @@ const Header = () => {
 				<img alt="avatr" src={svg} />
 			</div>
 			<div className="flex flex-col gap-1">
-				<span className="text-xl font-bold">{to?.name ?? "Quentin"}</span>
+				<span className="text-xl font-bold">
+					{to?.at(0)?.name ?? "Quentin"}
+				</span>
 				<span className="text-muted-foreground text-sm">Active 1min ago</span>
 			</div>
 		</div>
