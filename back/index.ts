@@ -1,5 +1,6 @@
 import { Prisma, PrismaClient } from "@prisma/client";
-import { log } from "node:console";
+import { group, log } from "node:console";
+import { createUser } from "./services/user-service";
 
 
 type Message = {
@@ -8,35 +9,40 @@ type Message = {
 }
 
 const db = new PrismaClient()
-const server = Bun.serve<{ pathname: string }>({
-  
-  async fetch(req, server) {
-    const { pathname } = new URL(req.url);
-    console.log(pathname);
-    console.log(validateRouteWithParams({method: "POST", url: pathname.trim(), routePattern: /^\/send-message\/?$/}));
-    
-    if(req.method === "POST" && pathname === "/save-user"){
 
+const routes = [
+  {
+    method: "POST",
+    url: "/save-user",
+    pattern: /^\/save-user\/?$/,
+    handle: async (req: Request) => {
       const payload = await req.json()
       const {username} = payload
-      const newUser = await db.user.create({
-        data: {
-          name: username
-        }
-      })
-      const res =  new Response(JSON.stringify(newUser))
-      res.headers.set('Access-Control-Allow-Origin', '*');
-      res.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-      return res;
 
-    } else if(req.method === "GET" && pathname === "/userss"){
+      const newUser = await createUser(username as string) 
+      if(!newUser){
+        return createResponse({
+          errorMessage: "Cet utilisateur existe déjà.",
+        }, 400)
+      }
+      return createResponse(newUser)
+    }
+  },
+  {
+    method: "GET",
+    url: "/users",
+    pattern: /^\/users\/?$/,
+    handle: async (req: Request) => {
       const users = await db.user.findMany();
       return createResponse(users)
-    } else if(validateRouteWithParams({method: "GET", url: pathname, routePattern: /^\/group\/(\d+)\/messages$/}).isValid)
-    {
-      const request = validateRouteWithParams({method: "GET", url: pathname, routePattern: /^\/group\/(\d+)\/messages$/})
-      console.log("messages");
-      
+    }
+  },
+  {
+    method: "GET",
+    url: "/group/{groupdId}/messages",
+    pattern: /^\/group\/(\d+)\/messages\/?$/,
+    handle: async (req: Request) => {
+      const request = validateRouteWithParams({method: "GET", url: req.url, routePattern: /^\/group\/(\d+)\/messages\/?$/})
       if(!request.groupId){
         return createResponse({
           errorMessage: "Impossible.",
@@ -52,49 +58,123 @@ const server = Bun.serve<{ pathname: string }>({
         }
       });
       return createResponse(group?.messages)
-    } else if(req.method === "POST" && pathname === "/send-message") {
-        console.log("send message");
+    }  
+  },
+  {
+    method: "GET",
+    url: "/users/{userId}/groups",
+    pattern: /^\/users\/(\d+)\/groups\/?$/,
+    handle: async (req: Request) => {
 
-        const request = validateRouteWithParams({method: "GET", url: pathname, routePattern: /^\/user\/(\d+)\/messages$/})
-    
-        const payload = await req.json()
-        const {groupId , message} = payload
- 
-        const test = await db.group.update({
-          where: {
-            id: groupId
-          },
-          data: {
-            messages: {
-              create: [
-                {
-                  message: message as string,
-                  userId: 25
-                }
-              ]
-            }
-          }
-        })
+     const userId = getParamInUrl(req.url, /^\/users\/(\d+)\/groups\/?$/)
+      console.log({userId});
       
-        return createResponse({test}, 201)
-        // const updatedGroup = await db.group.update({
-        //   where: {
-        //     id: groupId as number
-        //   },
-        //   data: {
-        //     messages: {
-        //       create: [
-        //         {
-        //           message: message as string,
-        //           userId: 25
-        //         }
-        //       ]
-        //     }
-        //   }
-        // })
+      const user = await db.user.findFirst({
+        where: {
+          id: Number(userId)
+        }
+      });
+
+      if(!user){
+        return createResponse({
+          errorMessage: "Utilisateur non trouvé.",
+        }, 400)
       }
 
+      const users = await db.group.findMany({
+        where: {
+          users: {
+            some: {
+              id: Number(userId)
+            }
+          }
+        },
+    
+      });
+      return createResponse(users)
+    }  
+  },
+  {
+    method: "POST",
+    url: "/send-message",
+    pattern: /^\/send-message\/?$/,
+    handle: async (req: Request) => {
+      const payload = await req.json()
+      const {groupId , message, from} = payload
+
+      const updatedGroup = await db.group.update({
+        where: {
+          id: groupId as number
+        },
+        data: {
+          messages: {
+            create: [
+              {
+                message: message as string,
+                userId: 25
+              }
+            ]
+          }
+        }
+      })
+      return createResponse(updatedGroup)
+    }
+  },
+  {
+    method: "POST",
+    url: "/create-group",
+    pattern: /^\/create-group\/?$/,
+    handle: async (req: Request) => {
+      const payload = await req.json()
+      const {usersId } = payload
+
+      const groupExist = await db.group.findFirst({
+        where: {
+          users: {
+            every: {
+              id: {
+                in: usersId
+              }
+            }
+          }
+        },
+        include: {
+          users: true
+        }
+      })
+
+      if(groupExist){
+        return createResponse(groupExist)
+      }
+
+      const newGroup = await db.group.create({
+        data: {
+          users: {
+            connect: usersId.map((id: number) => ({id}))
+          }
+        },
+        include: {
+          users: true
+        }
+      })
+      
+      return createResponse(newGroup)
+    }
+  }
+]
+
+const server = Bun.serve<{ pathname: string }>({
   
+  async fetch(req, server) {
+    const { pathname } = new URL(req.url);
+    console.log(pathname);
+    console.log(validateRouteWithParams({method: "POST", url: pathname.trim(), routePattern: /^\/send-message\/?$/}));
+    
+    for (const route of routes) {
+      if (req.method === route.method && route.pattern.test(pathname)) {
+        return route.handle(req);
+      }
+    }
 
 
     
@@ -158,7 +238,7 @@ const server = Bun.serve<{ pathname: string }>({
   },
 });
 
-const createResponse = <T>(data: T, statusCode: number = 200) => {
+const createResponse = <T>(data: T, statusCode = 200) => {
   const res =  new Response(JSON.stringify(data), {
     status: statusCode
   });
@@ -194,6 +274,14 @@ const validateRouteWithParams = (req: { method: string; url: string, routePatter
   // console.log({params});
   return { isValid: true, groupId };
 };
+
+const getParamInUrl = (url: string, pattern: RegExp): string | null => {
+  const { pathname } = new URL(url, "http://localhost");
+  const match = pathname.match(pattern);
+  console.log({match});
+  
+  return match ? match[1] : null;
+}
 
 
 console.log(`Listening on ${server.hostname}:${server.port}`);
