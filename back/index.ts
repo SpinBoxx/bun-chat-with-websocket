@@ -39,6 +39,29 @@ const routes = [
   },
   {
     method: "GET",
+    url: "/groups/{groupdId}",
+    pattern: /^\/group\/(\d+)\/?$/,
+    handle: async (req: Request) => {
+      const request = validateRouteWithParams({method: "GET", url: req.url, routePattern: /^\/group\/(\d+)\/?$/})
+      if(!request.groupId){
+        return createResponse({
+          errorMessage: "Impossible.",
+        }, 400)
+      }
+
+      const group = await db.group.findFirst({
+        where: {
+          id: Number(request.groupId)
+        },
+        include:{
+          messages: true
+        }
+      });
+      return createResponse(group)
+    }  
+  },
+  {
+    method: "GET",
     url: "/group/{groupdId}/messages",
     pattern: /^\/group\/(\d+)\/messages\/?$/,
     handle: async (req: Request) => {
